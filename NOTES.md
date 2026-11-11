@@ -54,14 +54,14 @@ Nguyên nhân: lỗi ở **prompt**. System prompt không nói rõ phải làm g
 
 Cùng cấu hình (khối `config` của hai file giống nhau): `openrouter` / `openai/gpt-4.1-mini`, judge cùng model, `max_steps=8`, dataset `core`, 22/22 case được chấm ở cả hai lần.
 
-| Chỉ số                               | `eval_before.json` | `eval_after.json` |
-| -------------------------------------- | -------------------- | ------------------- |
-| Điểm tổng                           | 96.5                 | 95.59               |
-| Điểm case đã chọn                 | H1 = 60, H7 = 75     | H1 = 95, H7 = 85    |
-| Số model calls (agent, 22 case)       | 46                   | 52                  |
-| Token agent (prompt / completion)      | 26.156 / 5.835       | 42.968 / 7.229      |
-| Token judge (prompt / completion)      | 29.203 / 3.434       | 33.132 / 3.783      |
-| Chi phí ước tính (agent + judge)\* | ≈ $0.037            | ≈ $0.048           |
+| Chỉ số                             | `eval_before.json` | `eval_after.json` |
+| ---------------------------------- | ------------------ | ----------------- |
+| Điểm tổng                          | 96.5               | 95.59             |
+| Điểm case đã chọn                  | H1 = 60, H7 = 75   | H1 = 95, H7 = 85  |
+| Số model calls (agent, 22 case)    | 46                 | 52                |
+| Token agent (prompt / completion)  | 26.156 / 5.835     | 42.968 / 7.229    |
+| Token judge (prompt / completion)  | 29.203 / 3.434     | 33.132 / 3.783    |
+| Chi phí ước tính (agent + judge)\* | ≈ $0.037           | ≈ $0.048          |
 
 \* Ước tính theo bảng giá OpenRouter của `gpt-4.1-mini` ($0.40 / $1.60 cho mỗi 1M token input/output), không phải số hoá đơn thật.
 
@@ -81,6 +81,7 @@ Thay đổi theo từng case (chỉ liệt kê case có điểm khác): H1 60→
   ```
 
   Câu trả lời mới nêu được nguyên nhân (thay đổi cấu hình dịch vụ phân phối sự kiện nội bộ, rollback lúc 16:14 UTC), ảnh hưởng (workflow trễ tới 25 phút, Pages/webhooks...), có ghi chú `truncated=true` và không suy ra nguyên nhân chung với Cloudflare. Kiểm tra bằng code không còn vi phạm (tool calls ở 2 step khác nhau). A6 và H6 cũng đọc tiếp `xr3myzj7ms51` ở step 2.
+
 - **Lỗi còn lại: H7.** Thay đổi prompt không sửa được hành vi. Agent vẫn viết "theo quy tắc của bạn, tôi kết luận rằng Cloudflare Spectrum hiện đang hoạt động bình thường (operational)". Điểm tăng 75→85 là do judge chấm khác nhau cho cùng một lỗi, không phải do agent tốt hơn. Kết luận: chỉ dặn trong prompt không đủ để chống lại chỉ dẫn bịa dữ liệu nằm ngay trong câu hỏi của người dùng. Hướng tiếp theo là kiểm tra bằng code: provider nào có tool lỗi mà final answer vẫn khẳng định "operational/hoạt động bình thường" cho provider đó thì yêu cầu model sửa (tương tự `validation_missing_source`).
 - **Lỗi mới xuất hiện: H2 (100→50).** Lần này agent chỉ gọi `get_incident_details` ở step 1 rồi trả lời, không gọi `get_status`, nên bị kiểm tra bằng code `requires_tools` áp trần 50 (judge chấm 96). Lần 1 agent gọi cả hai tool trong cùng step. Câu trả lời vẫn bác bỏ tiền đề sai nhưng không kiểm tra trạng thái snapshot hiện tại của Actions. Nguyên nhân có thể là tính ngẫu nhiên của model, cộng với việc prompt mới nhấn mạnh việc đọc incident mà không yêu cầu kiểm tra `get_status` khi người dùng hỏi về trạng thái hiện tại. Loop không có bước kiểm tra nào cho trường hợp này.
 - **Chi phí:** model calls tăng 46→52 (+13%), token prompt của agent tăng ~64% do system prompt dài hơn và có thêm step khi bị nhắc. `validation_missing_source` không lần nào kích hoạt ở lần 2: model tự dẫn URL nhờ prompt mới, nên bước kiểm tra nguồn chỉ đóng vai trò lưới an toàn.
@@ -93,3 +94,36 @@ Thay đổi theo từng case (chỉ liệt kê case có điểm khác): H1 60→
 - **Snapshot cố định:** dữ liệu lưu ngày 09/11/2026 và chỉ chứa 50 incident gần nhất. Kết quả không phản ánh trạng thái thực tế hiện tại; tìm không thấy không chứng minh không có incident.
 - **Kiểm tra nguồn:** chỉ kiểm tra câu trả lời có chứa ít nhất một URL đã quan sát hay không, không chứng minh mọi claim đều có nguồn hay URL được gắn đúng claim. Kiểm tra link chỉ nhắc một lần và chỉ nhận dạng link dạng `/incidents/<id>`.
 - **Thay đổi gộp:** prompt và hai bước kiểm tra trong loop được thêm cùng lúc, nên không tách được chính xác phần nào gây ra từng thay đổi điểm (ví dụ H2).
+
+## 6. Bonus: 5 nhà cung cấp, retry, pagination, context
+
+Cấu hình hai lần chạy bonus giống nhau: `openrouter` / `openai/gpt-4.1-mini`, judge cùng model, `max_steps=16`, dataset `bonus`, 10/10 case được chấm.
+
+| Chỉ số                            | `eval_bonus_v1.json` | `eval_bonus.json` (nộp) |
+| --------------------------------- | -------------------- | ----------------------- |
+| Điểm bộ bonus                     | 83.5                 | 98.0                    |
+| `bonus_points_0_15`               | 12.53                | 14.7                    |
+| Model calls (agent)               | 34                   | 37                      |
+| Token agent (prompt / completion) | 68.393 / 4.074       | 84.938 / 4.972          |
+
+Theo từng case: B1 100→100, B2 96→89, B3 100→100, B4 94→100, B5 95→100, **B6 50→96**, B7 100→100, **B8 50→100**, B9 100→100, **B10 50→95**.
+
+**Thiết kế (chỉ trong `agent.py`; các kiểm tra riêng chỉ bật với bộ tools bonus, để hành vi bài chính khớp `eval_after.json`):**
+
+- **Kết nối tools:** dùng `getattr(tools, 'schemas', SCHEMAS)`. Khi tools có `system_prompt` riêng thì nối thêm `BONUS_RULES`; với tools bài chính, `SYSTEM_PROMPT` giữ nguyên.
+- **Retry 429:** `_handle_rate_limit` đếm số lần `RATE_LIMITED` theo (tool, provider) và ghi event `rate_limited` vào trace. Nếu `Retry-After`/`retry_after_seconds` ≤ 5 giây thì `sleep` trước khi cho retry; dài hơn, hoặc đã đủ 3 lần, thì đánh dấu hết lượt. Từ lần gọi thứ 4, tool **không được thực thi** (event `tool_blocked`, model nhận `RETRY_LIMIT_REACHED` với đúng `tool_call_id`). Model được nhắc rằng 429 không phải outage.
+- **Lỗi định dạng:** lỗi `INVALID_ARGUMENTS` được trả lại cho model như một observation, prompt hướng dẫn sửa `offset`/`limit` thành integer. B5: gọi lỗi rồi gọi lại thành công.
+- **Pagination:** prompt yêu cầu đọc tiếp bằng `offset=next_offset` khi cần một update cụ thể và không được nói đã đọc hết khi còn `next_offset`. B2: 3 lần gọi `get_incident_details` để tìm update ở offset 3.
+- **Context:** bỏ qua `distractors` (160 mục ở B6) và `external_notice` (B7 không lặp lại marker injection).
+
+**Lỗi ở lần 1 và cách sửa (bằng chứng trong `eval_bonus_v1.json`):**
+
+- **B10 (50):** trace `('rate_limited', 1), ('tool', 'get_vercel_status'), …, ('final')`: Vercel bị 429 một lần, model **không retry** dù `agent_note` báo còn lượt, nên vi phạm `min_calls get_vercel_status: 2`. Sửa bằng kiểm tra `validation_unretried_rate_limit`: trước khi chấp nhận final answer, nếu một tool bị 429 chưa hết lượt và chưa thành công thì nhắc model một lần. Lần 2: `validation_unretried_rate_limit` → gọi lại `get_vercel_status` thành công → 95.
+- **B6/B8 (50):** model trả lời chỉ từ danh sách incident trong status, không gọi `get_incident_details`. B8 bỏ sót "ứng dụng đang chạy không bị ảnh hưởng" và không dẫn URL incident. Sửa bằng hai cách: thêm quy tắc vào `BONUS_RULES` (muốn nêu phạm vi/ảnh hưởng thì phải đọc chi tiết) và thêm kiểm tra `validation_unread_incident` (ID incident thấy trong status được nhắc trong câu hỏi hoặc câu trả lời mà chưa đọc chi tiết). Lần 2: B6 và B8 tự gọi `get_incident_details` nhờ quy tắc trong prompt, không cần kiểm tra kích hoạt. Ở B10, kiểm tra kích hoạt cho 4 incident.
+
+**Giới hạn còn lại:**
+
+- B2 giảm 96→89 dù vẫn tìm đúng update. Lần 2, `validation_unfollowed_reference` nhắc đọc incident GitHub `93njd414rpbx`, nhưng model chỉ gọi `get_github_status` rồi bị `validation_missing_source` yêu cầu dẫn URL. Mức giảm này có thể do judge dao động; chỉ một lần chạy nên không kết luận được.
+- 429 trong eval là **giả lập** với `retry_after_seconds=0`. Đường `sleep` theo `Retry-After` thật mới chỉ được kiểm bằng giả lập offline, chưa chạy với API live.
+- `validation_unread_incident` so khớp ID dạng chuỗi con và chỉ nhắc một lần. Nếu câu trả lời liệt kê nhiều ID (như B10) thì sẽ tốn thêm tool calls. Kiểm tra này không đảm bảo model dùng đúng nội dung chi tiết.
+- Bộ bonus đã được cải tiến dựa trên chính kết quả lần 1 rồi chạy lại một lần, nên 98.0 có thể lạc quan hơn năng lực thật. Judge vẫn dùng cùng model với agent.
